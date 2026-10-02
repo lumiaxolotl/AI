@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing Assistant</title>
+<style>
+  :root {
+    --bg: #faf8f5; --panel: #f1ede6; --card: #ffffff; --text: #1f1d1a; --muted: #6f6a62;
+    --border: #ddd6cb; --accent: #b4532a; --accent-text: #fff; --user: #efe7da; --code: #f3efe8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a18; --panel: #232220; --card: #2a2926; --text: #ece8e1; --muted: #a39d93;
+      --border: #3a3834; --accent: #e07a4b; --accent-text: #1b1a18; --user: #34312c; --code: #33312d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: flex; }
+  button, select, textarea, input { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 12px; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  aside { width: 270px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border);
+          display: flex; flex-direction: column; padding: 14px; gap: 10px; }
+  aside h1 { font-size: 17px; margin: 0 0 4px; }
+  #convos { flex: 1; overflow-y: auto; margin: 0 -6px; }
+  .convo { display: flex; align-items: center; border-radius: 8px; padding: 6px 8px; cursor: pointer; gap: 6px; }
+  .convo:hover, .convo.active { background: var(--card); }
+  .convo span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
+  .convo button { border: none; background: none; padding: 0 4px; color: var(--muted); visibility: hidden; }
+  .convo:hover button { visibility: visible; }
+  label.small { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+  aside select { width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
+  #status { font-size: 12px; color: var(--muted); }
+  #status.bad { color: #c0392b; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 24px 16px; }
+  .inner { max-width: 780px; margin: 0 auto; }
+  .msg { margin-bottom: 22px; }
+  .msg.user .bubble { background: var(--user); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; }
+  .msg.assistant .bubble { padding: 0 2px; }
+  .bubble p { margin: 0 0 .8em; }
+  .bubble pre { background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; }
+  .bubble code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+  .bubble pre code { padding: 0; background: none; }
+  .bubble blockquote { border-left: 3px solid var(--border); margin: 0 0 .8em; padding-left: 12px; color: var(--muted); }
+  .bubble a { color: var(--accent); }
+  .tools { display: flex; gap: 8px; margin-top: 4px; }
+  .tools button { font-size: 12px; padding: 2px 8px; color: var(--muted); }
+  .sources { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .sources summary { cursor: pointer; }
+  .sources a { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .working { font-size: 13px; color: var(--muted); font-style: italic; }
+  .error { color: #c0392b; font-size: 14px; }
+  .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
+  .empty h2 { color: var(--text); font-weight: 600; }
+
+  #composer { border-top: 1px solid var(--border); padding: 12px 16px 16px; }
+  #composer .inner { display: flex; flex-direction: column; gap: 8px; }
+  #input { width: 100%; min-height: 70px; max-height: 40vh; resize: vertical; padding: 10px 12px;
+           border-radius: 12px; border: 1px solid var(--border); background: var(--card); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row select { padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
+  .row .grow { flex: 1; }
+  .check { font-size: 13px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+
+  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text);
+           width: min(600px, 92vw); padding: 18px; }
+  dialog textarea { width: 100%; height: 240px; border-radius: 8px; border: 1px solid var(--border);
+                    background: var(--bg); padding: 10px; }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+
+  #menu { display: none; }
+  @media (max-width: 760px) {
+    aside { position: fixed; inset: 0 auto 0 0; z-index: 5; transform: translateX(-100%); transition: transform .2s; }
+    aside.open { transform: none; }
+    #menu { display: inline-block; }
+  }
+</style>
+</head>
+<body>
+<aside id="sidebar">
+  <h1>✍️ Writing Assistant</h1>
+  <button class="primary" id="newChat">+ New conversation</button>
+  <div id="convos"></div>
+  <div>
+    <label class="small" for="model">Model</label>
+    <select id="model"></select>
+  </div>
+  <button id="profileBtn">My writing profile</button>
+  <div id="status">Checking…</div>
+</aside>
+
+<main>
+  <div id="messages"><div class="inner" id="thread"></div></div>
+  <div id="composer">
+    <div class="inner">
+      <textarea id="input" placeholder="Paste your writing or ask for help… (Enter to send, Shift+Enter for a new line)"></textarea>
+      <div class="row">
+        <button id="menu">☰</button>
+        <select id="mode" title="What kind of help">
+          <option value="chat">💬 Chat</option>
+          <option value="draft">📝 Draft</option>
+          <option value="edit">✂️ Edit</option>
+          <option value="proofread">🔍 Proofread</option>
+          <option value="brainstorm">💡 Brainstorm</option>
+          <option value="research">🌐 Research</option>
+          <option value="factcheck">✅ Fact-check</option>
+        </select>
+        <label class="check"><input type="checkbox" id="autoSearch"> Search the web first</label>
+        <span class="grow"></span>
+        <button id="stop" hidden>Stop</button>
+        <button class="primary" id="send">Send</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<dialog id="profileDlg">
+  <h3 style="margin-top:0">My writing profile</h3>
+  <p style="color:var(--muted);font-size:14px">Tell the assistant about you and your writing. It reads this before every reply.
+  For example: what you write, your audience, tone, British/American spelling, words you avoid, a sample paragraph of your style.</p>
+  <textarea id="profileText"></textarea>
+  <div class="row" style="margin-top:10px;justify-content:flex-end">
+    <button id="profileCancel">Cancel</button>
+    <button class="primary" id="profileSave">Save</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentId = null;
+let controller = null;
+
+// ---------- tiny, safe Markdown renderer ----------
+function esc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function inline(s) {
+  const codes = [];
+  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = esc(s)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[i])}</code>`);
+}
+function markdown(src) {
+  const lines = src.replace(/\r/g, '').split('\n');
+  let html = '', para = [], list = null, inCode = false, code = [];
+  const flushPara = () => { if (para.length) { html += `<p>${para.map(inline).join('<br>')}</p>`; para = []; } };
+  const flushList = () => { if (list) { html += `</${list}>`; list = null; } };
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      if (inCode) { html += `<pre><code>${esc(code.join('\n'))}</code></pre>`; code = []; inCode = false; }
+      else { flushPara(); flushList(); inCode = true; }
+      continue;
+    }
+    if (inCode) { code.push(line); continue; }
+    let m;
+    if (!line.trim()) { flushPara(); flushList(); }
+    else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(m[1].length + 2, 6); html += `<h${n}>${inline(m[2])}</h${n}>`; }
+    else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushPara(); if (list !== 'ul') { flushList(); html += '<ul>'; list = 'ul'; } html += `<li>${inline(m[1])}</li>`; }
+    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flushPara(); if (list !== 'ol') { flushList(); html += '<ol>'; list = 'ol'; } html += `<li>${inline(m[1])}</li>`; }
+    else if ((m = line.match(/^>\s?(.*)/))) { flushPara(); flushList(); html += `<blockquote>${inline(m[1])}</blockquote>`; }
+    else if (/^(-{3,}|\*{3,})$/.test(line.trim())) { flushPara(); flushList(); html += '<hr>'; }
+    else { flushList(); para.push(line); }
+  }
+  if (inCode) html += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+  flushPara(); flushList();
+  return html;
+}
+
+// ---------- rendering ----------
+function showEmpty() {
+  $('thread').innerHTML = `<div class="empty"><h2>What are we writing today?</h2>
+    <p>Pick a mode below — draft, edit, proofread, brainstorm, research or fact-check —<br>
+    and paste your text or describe what you need. Paste a link and I'll read it.</p></div>`;
+}
+function addMessage(role, text, sources) {
+  const empty = $('thread').querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<div class="bubble"></div>`;
+  const bubble = div.firstChild;
+  if (role === 'user') bubble.textContent = text;
+  else {
+    bubble.innerHTML = markdown(text);
+    div.dataset.raw = text;
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    tools.innerHTML = `<button>Copy</button>`;
+    tools.firstChild.onclick = (e) => { navigator.clipboard.writeText(div.dataset.raw); e.target.textContent = 'Copied!'; setTimeout(() => e.target.textContent = 'Copy', 1200); };
+    div.appendChild(tools);
+    if (sources && sources.length) setSources(div, sources);
+  }
+  $('thread').appendChild(div);
+  scrollDown();
+  return div;
+}
+function setSources(div, sources) {
+  let d = div.querySelector('.sources');
+  if (!d) { d = document.createElement('details'); d.className = 'sources'; div.appendChild(d); }
+  d.innerHTML = `<summary>${sources.length} web source${sources.length > 1 ? 's' : ''}</summary>` +
+    sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a>`).join('');
+}
+function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
+
+// ---------- conversations ----------
+async function loadConvos() {
+  const list = await (await fetch('/api/conversations')).json();
+  $('convos').innerHTML = '';
+  for (const c of list) {
+    const el = document.createElement('div');
+    el.className = 'convo' + (c.id === currentId ? ' active' : '');
+    el.innerHTML = `<span></span><button title="Delete">🗑</button>`;
+    el.firstChild.textContent = c.title;
+    el.onclick = () => openConvo(c.id);
+    el.lastChild.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this conversation?')) return;
+      await fetch('/api/conversations/' + c.id, { method: 'DELETE' });
+      if (c.id === currentId) newChat();
+      loadConvos();
+    };
+    $('convos').appendChild(el);
+  }
+}
+async function openConvo(id) {
+  const c = await (await fetch('/api/conversations/' + id)).json();
+  currentId = id;
+  $('thread').innerHTML = '';
+  for (const m of c.messages) addMessage(m.role, m.text, m.sources);
+  if (!c.messages.length) showEmpty();
+  $('sidebar').classList.remove('open');
+  loadConvos();
+}
+function newChat() { currentId = null; showEmpty(); loadConvos(); $('input').focus(); $('sidebar').classList.remove('open'); }
+
+// ---------- sending ----------
+async function send() {
+  const text = $('input').value.trim();
+  if (!text || controller) return;
+  $('input').value = '';
+  addMessage('user', text);
+  const div = addMessage('assistant', '');
+  const bubble = div.querySelector('.bubble');
+  const status = document.createElement('div');
+  status.className = 'working';
+  status.textContent = 'Starting…';
+  div.insertBefore(status, bubble);
+  let raw = '', sources = [];
+
+  controller = new AbortController();
+  $('send').disabled = true; $('stop').hidden = false;
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: currentId, text, mode: $('mode').value,
+                             auto_search: $('autoSearch').checked, model: $('model').value }),
+    });
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === 'conversation') { if (currentId !== ev.id) { currentId = ev.id; loadConvos(); } }
+        else if (ev.type === 'text') { raw += ev.text; div.dataset.raw = raw; bubble.innerHTML = markdown(raw); scrollDown(); }
+        else if (ev.type === 'status') { status.textContent = ev.text; status.hidden = !ev.text; }
+        else if (ev.type === 'source') { if (!sources.some(s => s.url === ev.url)) { sources.push(ev); setSources(div, sources); } }
+        else if (ev.type === 'error') { const e = document.createElement('div'); e.className = 'error'; e.textContent = ev.text; div.appendChild(e); }
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') { const el = document.createElement('div'); el.className = 'error'; el.textContent = 'Connection lost: ' + e.message; div.appendChild(el); }
+  } finally {
+    status.remove();
+    controller = null;
+    $('send').disabled = false; $('stop').hidden = true;
+    loadConvos();
+  }
+}
+
+// ---------- settings & status ----------
+async function loadStatus() {
+  const s = await (await fetch('/api/status')).json();
+  const sel = $('model');
+  const models = s.models.length ? s.models : [s.settings.model];
+  if (!models.includes(s.settings.model) && !models.includes(s.settings.model + ':latest')) models.unshift(s.settings.model);
+  sel.innerHTML = models.map(m => `<option>${esc(m)}</option>`).join('');
+  sel.value = models.includes(s.settings.model) ? s.settings.model : s.settings.model + ':latest';
+  const st = $('status');
+  if (!s.ok) { st.className = 'bad'; st.textContent = s.error; }
+  else if (!s.models.length) { st.className = 'bad'; st.textContent = `No models downloaded. In a terminal run: ollama pull ${s.settings.model}`; }
+  else { st.className = ''; st.textContent = `Running locally · ${s.models.length} model${s.models.length > 1 ? 's' : ''} available`; }
+}
+$('model').onchange = () => fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: $('model').value }) });
+
+$('profileBtn').onclick = async () => {
+  $('profileText').value = (await (await fetch('/api/profile')).json()).profile;
+  $('profileDlg').showModal();
+};
+$('profileCancel').onclick = () => $('profileDlg').close();
+$('profileSave').onclick = async () => {
+  await fetch('/api/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: $('profileText').value }) });
+  $('profileDlg').close();
+};
+
+$('send').onclick = send;
+$('stop').onclick = () => controller && controller.abort();
+$('newChat').onclick = newChat;
+$('menu').onclick = () => $('sidebar').classList.toggle('open');
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+showEmpty();
+loadConvos();
+loadStatus();
+</script>
+</body>
+</html>
