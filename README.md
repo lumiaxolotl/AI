@@ -1,90 +1,75 @@
-# Personal Writing Assistant
+# Quill: a personal writing assistant built from scratch
 
-A private AI writing assistant that runs **entirely on your own laptop**. No accounts, no API keys,
-no subscription, no per-use (token) costs. The AI model runs locally through [Ollama](https://ollama.com),
-and the assistant searches and reads the web on its own (DuckDuckGo, with Bing as a backup).
+Quill runs entirely on your own computer, using only plain Python. It needs no AI model download, no
+API keys, no accounts and no special hardware. If a computer can run a web browser, it can run Quill. Every
+part of it is written from scratch in this repository: the spell checker, grammar rules, style checker,
+summarizer, research engine and a small language model that learns your writing style.
 
-It can:
+It uses the internet for web research (DuckDuckGo, with Bing as a backup) and word lookups
+(the free [Datamuse](https://www.datamuse.com/api/) and [Free Dictionary](https://dictionaryapi.dev/) services).
+Your documents never leave your computer.
 
-- **Draft** new writing from your notes
-- **Edit** for clarity, flow and concision, and explain what changed
-- **Proofread** spelling, grammar and punctuation without touching your style
-- **Brainstorm** ideas, angles and titles
-- **Research** a topic on the live web, with cited sources
-- **Fact-check** your text against current web sources
-- **Read any link** you paste into the chat
+## What it does
 
-Your conversations and writing profile are saved as files in the `data/` folder on your laptop and never
-leave it. The only things sent over the internet are web searches and the pages it reads.
+| Tool | What you get |
+|---|---|
+| **Check** | Live spelling, grammar, punctuation and style checking with one-click fixes, a writing score, and readability stats (reading ease, grade level, sentence length, word variety, reading/speaking time). It flags wordy phrases, filler words, hedging, clichés, passive voice, adverbs, overly long sentences and repetition. |
+| **Tighten** | Applies every fix it's confident about in one go, and shows each change before you accept. |
+| **Summarize** | Picks out the key sentences and key phrases from your text or a selection. |
+| **Research** | Searches the web, reads the top pages, and pulls out the most relevant facts with numbered sources. One click inserts them as notes. |
+| **Fact-check** | Looks up each factual sentence (names, dates, numbers) and shows matching statements from the web. It flags claims where a source gives different numbers. |
+| **Outline** | Researches a topic and builds an outline from the sub-topics the sources share, with notes and citations under each heading. |
+| **Ideas** | Titles, angles, questions people ask, and related topics. |
+| **Words** | Definitions, synonyms (click to swap one in), similar words, opposites and rhymes. |
+| **My voice** | A small language model built from scratch (a word n-gram model) that trains on **your own writing samples** in under a second and continues your text in your style. It's good for sparks and phrasing ideas, not for finished prose. |
 
-## Setup (one time)
+Documents save automatically. Use **My writing samples** to teach Quill your style and **My dictionary**
+for names and terms it shouldn't flag.
 
-1. **Install Python 3** (3.10 or newer): <https://www.python.org/downloads/>
+## Setup
+
+1. **Install Python 3.10 or newer** from <https://www.python.org/downloads/>.
    On Windows, tick **"Add python.exe to PATH"** in the installer.
-2. **Install Ollama**: <https://ollama.com/download>, then open it once.
-3. **Download this project**: on GitHub click **Code → Download ZIP** and unzip it, or
+2. **Download Quill**: on GitHub click **Code → Download ZIP** and unzip it, or run
    `git clone https://github.com/lumiaxolotl/AI.git`.
 
-No other installs are needed; the app only uses Python's standard library.
+That's it. There's nothing else to install.
 
 ## Start it
 
 - **Windows:** double-click `start.bat`
-- **Mac / Linux:** open a terminal in the folder and run `./start.sh`
+- **Mac / Linux:** open a terminal in the folder and run `./start.sh` (or `python3 server.py`)
 
-The first start downloads the AI model (about 5 GB, once). Then your browser opens at
-<http://127.0.0.1:8765>. To stop it, close the terminal window or press `Ctrl+C`.
+Your browser opens at <http://127.0.0.1:8765>. To stop Quill, close the terminal window or press `Ctrl+C`.
 
-## Using it
+## Honest limits
 
-- Choose a mode under the text box (Chat, Draft, Edit, Proofread, Brainstorm, Research, Fact-check),
-  paste your text or describe what you need, and press **Enter**.
-- Tick **Search the web first** to make it look things up before answering, in any mode.
-  Research and Fact-check always search.
-- Click **My writing profile** to tell it about you: what you write, your audience, your tone,
-  British or American spelling, words you avoid, a sample of your writing. It follows this in every reply.
-- Past conversations are in the sidebar; **Copy** under a reply copies it as Markdown.
-
-## Choosing a model
-
-The default model is `llama3.1:8b`, a good balance for most laptops (8 GB+ RAM). You can download others
-and switch between them from the **Model** menu in the sidebar:
-
-| Your laptop | Try | Download command |
-|---|---|---|
-| 8 GB RAM, older laptop | `llama3.2:3b` (fast, lighter) | `ollama pull llama3.2:3b` |
-| 16 GB RAM | `llama3.1:8b` (default) or `qwen3:8b` | `ollama pull qwen3:8b` |
-| 32 GB+ RAM or a strong GPU / Apple M-series Pro/Max | `qwen3:14b`, `gemma3:27b`, `qwen3:32b` | `ollama pull qwen3:14b` |
-
-Bigger models write better but run slower. Models that support "tools" (Llama 3.1+, Qwen 3, Mistral)
-can decide on their own when to search the web. Others still get web results through
-**Search the web first**, the Research and Fact-check modes, and pasted links.
+Quill is not a chatbot, and it can't write fluent new essays for you. Large AI models do that by training
+on enormous amounts of text with powerful hardware. Instead, Quill does what can be done well
+from scratch on any computer: careful checking and editing, real research with sources, and structure and
+ideas to write from. Fact-check finds evidence and shows it to you; you make the final call.
 
 ## Settings (optional)
 
-Set these environment variables before starting if you want to change defaults:
-
 | Variable | Default | Meaning |
 |---|---|---|
-| `WRITER_MODEL` | `llama3.1:8b` | Model used when none is picked in the app |
-| `WRITER_CONTEXT` | `16384` | How much text (tokens) the model can consider at once; raise for long documents if you have the RAM |
 | `WRITER_PORT` | `8765` | Port for the web page |
-| `WRITER_DATA` | `./data` | Where conversations and your profile are stored |
-| `OLLAMA_URL` | `http://127.0.0.1:11434` | Where Ollama is running |
-
-## Troubleshooting
-
-- **"Can't reach Ollama"**: open the Ollama app (or run `ollama serve`), then refresh the page.
-- **"Model isn't downloaded"**: run the `ollama pull ...` command it shows.
-- **Slow replies**: switch to a smaller model, such as `llama3.2:3b`.
-- **Web search returns nothing**: search engines occasionally rate-limit; wait a minute and try again.
+| `WRITER_DATA` | `./data` | Where documents, samples and your dictionary are stored |
+| `WRITER_NO_BROWSER` | unset | Set to `1` to stop the browser from opening automatically |
 
 ## Files
 
-| File | What it does |
+| Path | What it does |
 |---|---|
-| `server.py` | Local web server and conversation storage |
-| `assistant.py` | Talks to the local model, writing modes, tool use |
-| `websearch.py` | Free web search and page reading |
+| `server.py` | Local web server and document storage |
 | `static/index.html` | The app you see in your browser |
-| `start.sh` / `start.bat` | One-click launchers |
+| `quill/spelling.py` | Spell checker (edit distance + word frequencies) |
+| `quill/grammar.py` | Grammar and punctuation rules |
+| `quill/style.py` | Style checks and readability statistics |
+| `quill/editor.py` | Combines the checks; auto-fix ("Tighten") |
+| `quill/summarize.py` | TextRank summaries, key phrases, BM25 ranking |
+| `quill/research.py` | Research, outline, ideas and fact-check |
+| `quill/voice.py` | The "My voice" n-gram language model |
+| `quill/lexicon.py` | Synonyms, definitions and rhymes |
+| `quill/websearch.py` | Web search and page reading |
+| `quill/data/en_words.json.gz` | English word-frequency list (MIT licence, from [pyspellchecker](https://github.com/barrust/pyspellchecker); see `en_words.LICENSE`) |

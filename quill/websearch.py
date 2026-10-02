@@ -14,7 +14,7 @@ TIMEOUT = 20
 MAX_PAGE_CHARS = 12000
 
 
-def _get(url: str, data: bytes | None = None) -> str:
+def get(url: str, data: bytes | None = None) -> str:
     req = urllib.request.Request(
         url,
         data=data,
@@ -124,13 +124,13 @@ def search(query: str, max_results: int = 8) -> list[dict]:
     except Exception:
         pass
     parser = _BingParser()
-    parser.feed(_get("https://www.bing.com/search?" + urllib.parse.urlencode({"q": query})))
+    parser.feed(get("https://www.bing.com/search?" + urllib.parse.urlencode({"q": query})))
     return _clean(parser.results, max_results)
 
 
 def _search_ddg(query: str, max_results: int) -> list[dict]:
     body = urllib.parse.urlencode({"q": query}).encode()
-    html = _get("https://html.duckduckgo.com/html/", data=body)
+    html = get("https://html.duckduckgo.com/html/", data=body)
     parser = _DDGParser()
     parser.feed(html)
     return _clean(parser.results, max_results)
@@ -174,7 +174,7 @@ def fetch_page(url: str) -> dict:
     """Download a web page and return {title, url, text} with the readable text only."""
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    html = _get(url)
+    html = get(url)
     ex = _TextExtractor()
     ex.feed(html)
     text = "".join(ex.parts)

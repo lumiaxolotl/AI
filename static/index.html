@@ -3,331 +3,501 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Writing Assistant</title>
+<title>Quill</title>
 <style>
   :root {
-    --bg: #faf8f5; --panel: #f1ede6; --card: #ffffff; --text: #1f1d1a; --muted: #6f6a62;
-    --border: #ddd6cb; --accent: #b4532a; --accent-text: #fff; --user: #efe7da; --code: #f3efe8;
+    --bg: #faf8f5; --panel: #f2eee7; --card: #ffffff; --text: #1f1d1a; --muted: #6f6a62;
+    --border: #ddd6cb; --accent: #b4532a; --accent-text: #fff; --soft: #efe7da;
+    --error: #c0392b; --warning: #b7791f; --hint: #2b6cb0; --ok: #2f855a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1b1a18; --panel: #232220; --card: #2a2926; --text: #ece8e1; --muted: #a39d93;
-      --border: #3a3834; --accent: #e07a4b; --accent-text: #1b1a18; --user: #34312c; --code: #33312d;
+      --border: #3a3834; --accent: #e07a4b; --accent-text: #1b1a18; --soft: #34312c;
+      --error: #f07167; --warning: #f6ad55; --hint: #63b3ed; --ok: #68d391;
     }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  body { background: var(--bg); color: var(--text); font: 15px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif;
-         display: flex; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: flex; overflow: hidden; }
   button, select, textarea, input { font: inherit; color: inherit; }
-  button { cursor: pointer; border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 12px; }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 5px 11px; }
+  button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.link { border: none; background: none; padding: 0; color: var(--accent); }
   button:disabled { opacity: .5; cursor: default; }
+  input[type=text] { border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 9px; width: 100%; }
+  a { color: var(--accent); }
 
-  aside { width: 270px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border);
-          display: flex; flex-direction: column; padding: 14px; gap: 10px; }
-  aside h1 { font-size: 17px; margin: 0 0 4px; }
-  #convos { flex: 1; overflow-y: auto; margin: 0 -6px; }
-  .convo { display: flex; align-items: center; border-radius: 8px; padding: 6px 8px; cursor: pointer; gap: 6px; }
-  .convo:hover, .convo.active { background: var(--card); }
-  .convo span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
-  .convo button { border: none; background: none; padding: 0 4px; color: var(--muted); visibility: hidden; }
-  .convo:hover button { visibility: visible; }
-  label.small { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
-  aside select { width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
-  #status { font-size: 12px; color: var(--muted); }
-  #status.bad { color: #c0392b; }
+  /* sidebar */
+  #side { width: 220px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border);
+          display: flex; flex-direction: column; padding: 14px 12px; gap: 8px; }
+  #side h1 { font-size: 19px; margin: 0 0 4px; font-family: Georgia, serif; }
+  #docs { flex: 1; overflow-y: auto; margin: 0 -4px; }
+  .doc { display: flex; align-items: center; gap: 4px; border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+  .doc:hover, .doc.active { background: var(--card); }
+  .doc span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .doc small { color: var(--muted); }
+  .doc button { border: none; background: none; padding: 0 3px; visibility: hidden; color: var(--muted); }
+  .doc:hover button { visibility: visible; }
 
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #messages { flex: 1; overflow-y: auto; padding: 24px 16px; }
-  .inner { max-width: 780px; margin: 0 auto; }
-  .msg { margin-bottom: 22px; }
-  .msg.user .bubble { background: var(--user); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; }
-  .msg.assistant .bubble { padding: 0 2px; }
-  .bubble p { margin: 0 0 .8em; }
-  .bubble pre { background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; }
-  .bubble code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
-  .bubble pre code { padding: 0; background: none; }
-  .bubble blockquote { border-left: 3px solid var(--border); margin: 0 0 .8em; padding-left: 12px; color: var(--muted); }
-  .bubble a { color: var(--accent); }
-  .tools { display: flex; gap: 8px; margin-top: 4px; }
-  .tools button { font-size: 12px; padding: 2px 8px; color: var(--muted); }
-  .sources { font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .sources summary { cursor: pointer; }
-  .sources a { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .working { font-size: 13px; color: var(--muted); font-style: italic; }
-  .error { color: #c0392b; font-size: 14px; }
-  .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
-  .empty h2 { color: var(--text); font-weight: 600; }
+  /* editor */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #title { border: none; background: transparent; font: 600 24px Georgia, serif; padding: 22px 28px 6px; outline: none; }
+  #editor { flex: 1; border: none; outline: none; resize: none; background: transparent; padding: 8px 28px 28px;
+            font: 17px/1.75 Georgia, "Times New Roman", serif; }
+  #bar { display: flex; gap: 14px; padding: 6px 28px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  #bar .grow { flex: 1; }
 
-  #composer { border-top: 1px solid var(--border); padding: 12px 16px 16px; }
-  #composer .inner { display: flex; flex-direction: column; gap: 8px; }
-  #input { width: 100%; min-height: 70px; max-height: 40vh; resize: vertical; padding: 10px 12px;
-           border-radius: 12px; border: 1px solid var(--border); background: var(--card); }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .row select { padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
+  /* tools panel */
+  #tools { width: 400px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+  #tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; border-bottom: 1px solid var(--border); }
+  #tabs button { font-size: 12.5px; padding: 4px 9px; border-radius: 999px; }
+  #tabs button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  #panel { flex: 1; overflow-y: auto; padding: 14px; }
+  .intro { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   .row .grow { flex: 1; }
-  .check { font-size: 13px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .card.clickable { cursor: pointer; }
+  .card h4 { margin: 0 0 4px; font-size: 14px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .ctx { font-family: Georgia, serif; font-size: 13.5px; color: var(--muted); margin: 4px 0; }
+  .ctx mark { background: var(--soft); color: var(--text); border-bottom: 2px solid var(--sev, var(--accent)); padding: 0 1px; }
+  .sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .sugg button { font-size: 12.5px; padding: 2px 9px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sev); margin-right: 6px; }
+  .sev-error { --sev: var(--error); } .sev-warning { --sev: var(--warning); } .sev-hint { --sev: var(--hint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+  .chips button { font-size: 12px; padding: 2px 9px; border-radius: 999px; }
+  .chips button.on { background: var(--soft); border-color: var(--accent); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 7px 9px; }
+  .stat b { display: block; font-size: 17px; }
+  .stat span { font-size: 11.5px; color: var(--muted); }
+  .score { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .score .num { font: 700 30px Georgia, serif; }
+  .badge { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: #fff; }
+  .v-supported { background: var(--ok); } .v-partial { background: var(--warning); } .v-check { background: var(--error); }
+  .v-unverified, .v-error { background: var(--muted); }
+  .cite { font-size: 11px; vertical-align: super; color: var(--accent); }
+  ol.src { padding-left: 20px; font-size: 12.5px; }
+  ol.src a { word-break: break-word; }
+  .words button { margin: 0 4px 5px 0; font-size: 12.5px; padding: 1px 8px; }
+  .diff del { color: var(--error); } .diff ins { color: var(--ok); text-decoration: none; font-weight: 600; }
+  .spin { color: var(--muted); font-style: italic; }
+  .err { color: var(--error); }
+  .opt { font-family: Georgia, serif; font-size: 15px; }
 
-  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text);
-           width: min(600px, 92vw); padding: 18px; }
-  dialog textarea { width: 100%; height: 240px; border-radius: 8px; border: 1px solid var(--border);
-                    background: var(--bg); padding: 10px; }
+  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); width: min(640px, 94vw); padding: 18px; }
+  dialog textarea { width: 100%; height: 300px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); padding: 10px; font: 15px/1.6 Georgia, serif; }
   dialog::backdrop { background: rgba(0,0,0,.4); }
 
-  #menu { display: none; }
-  @media (max-width: 760px) {
-    aside { position: fixed; inset: 0 auto 0 0; z-index: 5; transform: translateX(-100%); transition: transform .2s; }
-    aside.open { transform: none; }
-    #menu { display: inline-block; }
+  @media (max-width: 1000px) {
+    body { flex-direction: column; overflow: auto; height: auto; }
+    #side { width: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    #docs { max-height: 140px; }
+    #editor { min-height: 50vh; padding: 8px 16px 16px; }
+    #title { padding: 16px 16px 4px; }
+    #bar { padding: 6px 16px; }
+    #tools { width: auto; border-left: none; border-top: 1px solid var(--border); }
   }
 </style>
 </head>
 <body>
-<aside id="sidebar">
-  <h1>✍️ Writing Assistant</h1>
-  <button class="primary" id="newChat">+ New conversation</button>
-  <div id="convos"></div>
-  <div>
-    <label class="small" for="model">Model</label>
-    <select id="model"></select>
-  </div>
-  <button id="profileBtn">My writing profile</button>
-  <div id="status">Checking…</div>
-</aside>
+<nav id="side">
+  <h1>🪶 Quill</h1>
+  <button class="primary" id="newDoc">+ New document</button>
+  <div id="docs"></div>
+  <button id="samplesBtn">My writing samples</button>
+  <button id="dictBtn">My dictionary</button>
+  <div class="muted small">Runs entirely on this computer.</div>
+</nav>
 
-<main>
-  <div id="messages"><div class="inner" id="thread"></div></div>
-  <div id="composer">
-    <div class="inner">
-      <textarea id="input" placeholder="Paste your writing or ask for help… (Enter to send, Shift+Enter for a new line)"></textarea>
-      <div class="row">
-        <button id="menu">☰</button>
-        <select id="mode" title="What kind of help">
-          <option value="chat">💬 Chat</option>
-          <option value="draft">📝 Draft</option>
-          <option value="edit">✂️ Edit</option>
-          <option value="proofread">🔍 Proofread</option>
-          <option value="brainstorm">💡 Brainstorm</option>
-          <option value="research">🌐 Research</option>
-          <option value="factcheck">✅ Fact-check</option>
-        </select>
-        <label class="check"><input type="checkbox" id="autoSearch"> Search the web first</label>
-        <span class="grow"></span>
-        <button id="stop" hidden>Stop</button>
-        <button class="primary" id="send">Send</button>
-      </div>
-    </div>
-  </div>
+<main id="main">
+  <input id="title" placeholder="Untitled" autocomplete="off">
+  <textarea id="editor" placeholder="Start writing, or paste your text here…" spellcheck="false"></textarea>
+  <div id="bar"><span id="wc">0 words</span><span id="rt"></span><span class="grow"></span><span id="saved"></span></div>
 </main>
 
-<dialog id="profileDlg">
-  <h3 style="margin-top:0">My writing profile</h3>
-  <p style="color:var(--muted);font-size:14px">Tell the assistant about you and your writing. It reads this before every reply.
-  For example: what you write, your audience, tone, British/American spelling, words you avoid, a sample paragraph of your style.</p>
-  <textarea id="profileText"></textarea>
-  <div class="row" style="margin-top:10px;justify-content:flex-end">
-    <button id="profileCancel">Cancel</button>
-    <button class="primary" id="profileSave">Save</button>
-  </div>
+<section id="tools">
+  <div id="tabs"></div>
+  <div id="panel"></div>
+</section>
+
+<dialog id="samplesDlg">
+  <h3 style="margin-top:0">My writing samples</h3>
+  <p class="muted">Paste things you've written: essays, posts, stories, emails. Quill learns your style from them
+    for <b>My voice</b>, and treats words you use often as correctly spelled. The more you add, the better it gets.</p>
+  <textarea id="samplesText"></textarea>
+  <div class="row" style="margin-top:10px"><span id="samplesCount" class="muted grow"></span>
+    <button id="samplesCancel">Cancel</button><button class="primary" id="samplesSave">Save</button></div>
+</dialog>
+
+<dialog id="dictDlg">
+  <h3 style="margin-top:0">My dictionary</h3>
+  <p class="muted">Words Quill should never flag as misspelled.</p>
+  <div class="row"><input type="text" id="dictAdd" placeholder="Add a word"><button id="dictAddBtn">Add</button></div>
+  <div id="dictList" class="words"></div>
+  <div class="row" style="margin-top:10px;justify-content:flex-end"><button id="dictClose">Close</button></div>
 </dialog>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let currentId = null;
-let controller = null;
+const ed = $('editor');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let docId = null, saveTimer = null, checkTimer = null, tab = 'check', lastCheck = null, hiddenKinds = new Set();
 
-// ---------- tiny, safe Markdown renderer ----------
-function esc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function inline(s) {
-  const codes = [];
-  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
-  s = esc(s)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-    .replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[i])}</code>`);
-}
-function markdown(src) {
-  const lines = src.replace(/\r/g, '').split('\n');
-  let html = '', para = [], list = null, inCode = false, code = [];
-  const flushPara = () => { if (para.length) { html += `<p>${para.map(inline).join('<br>')}</p>`; para = []; } };
-  const flushList = () => { if (list) { html += `</${list}>`; list = null; } };
-  for (const line of lines) {
-    if (line.trim().startsWith('```')) {
-      if (inCode) { html += `<pre><code>${esc(code.join('\n'))}</code></pre>`; code = []; inCode = false; }
-      else { flushPara(); flushList(); inCode = true; }
-      continue;
-    }
-    if (inCode) { code.push(line); continue; }
-    let m;
-    if (!line.trim()) { flushPara(); flushList(); }
-    else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(m[1].length + 2, 6); html += `<h${n}>${inline(m[2])}</h${n}>`; }
-    else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushPara(); if (list !== 'ul') { flushList(); html += '<ul>'; list = 'ul'; } html += `<li>${inline(m[1])}</li>`; }
-    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flushPara(); if (list !== 'ol') { flushList(); html += '<ol>'; list = 'ol'; } html += `<li>${inline(m[1])}</li>`; }
-    else if ((m = line.match(/^>\s?(.*)/))) { flushPara(); flushList(); html += `<blockquote>${inline(m[1])}</blockquote>`; }
-    else if (/^(-{3,}|\*{3,})$/.test(line.trim())) { flushPara(); flushList(); html += '<hr>'; }
-    else { flushList(); para.push(line); }
-  }
-  if (inCode) html += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
-  flushPara(); flushList();
-  return html;
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok || data.error) throw new Error(data.error || r.statusText);
+  return data;
 }
 
-// ---------- rendering ----------
-function showEmpty() {
-  $('thread').innerHTML = `<div class="empty"><h2>What are we writing today?</h2>
-    <p>Pick a mode below — draft, edit, proofread, brainstorm, research or fact-check —<br>
-    and paste your text or describe what you need. Paste a link and I'll read it.</p></div>`;
+// ---------- editor helpers ----------
+function selection() { return ed.value.slice(ed.selectionStart, ed.selectionEnd); }
+function replaceRange(start, end, text) {
+  ed.focus();
+  ed.setSelectionRange(start, end);
+  const ok = text ? document.execCommand('insertText', false, text) : document.execCommand('delete');
+  if (!ok) ed.setRangeText(text, start, end, 'end');  // fallback (no undo)
+  onEdit();
 }
-function addMessage(role, text, sources) {
-  const empty = $('thread').querySelector('.empty');
-  if (empty) empty.remove();
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  div.innerHTML = `<div class="bubble"></div>`;
-  const bubble = div.firstChild;
-  if (role === 'user') bubble.textContent = text;
-  else {
-    bubble.innerHTML = markdown(text);
-    div.dataset.raw = text;
-    const tools = document.createElement('div');
-    tools.className = 'tools';
-    tools.innerHTML = `<button>Copy</button>`;
-    tools.firstChild.onclick = (e) => { navigator.clipboard.writeText(div.dataset.raw); e.target.textContent = 'Copied!'; setTimeout(() => e.target.textContent = 'Copy', 1200); };
-    div.appendChild(tools);
-    if (sources && sources.length) setSources(div, sources);
-  }
-  $('thread').appendChild(div);
-  scrollDown();
-  return div;
+function insertAtCursor(text) {
+  const pos = ed.selectionEnd;
+  const before = ed.value.slice(0, pos);
+  const pad = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
+  replaceRange(pos, pos, pad + text + '\n');
 }
-function setSources(div, sources) {
-  let d = div.querySelector('.sources');
-  if (!d) { d = document.createElement('details'); d.className = 'sources'; div.appendChild(d); }
-  d.innerHTML = `<summary>${sources.length} web source${sources.length > 1 ? 's' : ''}</summary>` +
-    sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a>`).join('');
-}
-function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
+function select(start, end) { ed.focus(); ed.setSelectionRange(start, end); }
 
-// ---------- conversations ----------
-async function loadConvos() {
-  const list = await (await fetch('/api/conversations')).json();
-  $('convos').innerHTML = '';
-  for (const c of list) {
-    const el = document.createElement('div');
-    el.className = 'convo' + (c.id === currentId ? ' active' : '');
-    el.innerHTML = `<span></span><button title="Delete">🗑</button>`;
-    el.firstChild.textContent = c.title;
-    el.onclick = () => openConvo(c.id);
-    el.lastChild.onclick = async (e) => {
-      e.stopPropagation();
-      if (!confirm('Delete this conversation?')) return;
-      await fetch('/api/conversations/' + c.id, { method: 'DELETE' });
-      if (c.id === currentId) newChat();
-      loadConvos();
-    };
-    $('convos').appendChild(el);
-  }
+function updateCounts() {
+  const words = (ed.value.match(/[\p{L}]+(?:['’][\p{L}]+)*/gu) || []).length;
+  $('wc').textContent = `${words.toLocaleString()} word${words === 1 ? '' : 's'}`;
+  $('rt').textContent = words ? `${Math.max(1, Math.round(words / 238))} min read` : '';
 }
-async function openConvo(id) {
-  const c = await (await fetch('/api/conversations/' + id)).json();
-  currentId = id;
-  $('thread').innerHTML = '';
-  for (const m of c.messages) addMessage(m.role, m.text, m.sources);
-  if (!c.messages.length) showEmpty();
-  $('sidebar').classList.remove('open');
-  loadConvos();
+function onEdit() {
+  updateCounts();
+  $('saved').textContent = 'Editing…';
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 700);
+  if (tab === 'check') { clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 1200); }
 }
-function newChat() { currentId = null; showEmpty(); loadConvos(); $('input').focus(); $('sidebar').classList.remove('open'); }
-
-// ---------- sending ----------
-async function send() {
-  const text = $('input').value.trim();
-  if (!text || controller) return;
-  $('input').value = '';
-  addMessage('user', text);
-  const div = addMessage('assistant', '');
-  const bubble = div.querySelector('.bubble');
-  const status = document.createElement('div');
-  status.className = 'working';
-  status.textContent = 'Starting…';
-  div.insertBefore(status, bubble);
-  let raw = '', sources = [];
-
-  controller = new AbortController();
-  $('send').disabled = true; $('stop').hidden = false;
+async function save() {
+  if (!docId && !ed.value.trim() && !$('title').value.trim()) { $('saved').textContent = ''; return; }
   try {
-    const resp = await fetch('/api/chat', {
-      method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: currentId, text, mode: $('mode').value,
-                             auto_search: $('autoSearch').checked, model: $('model').value }),
+    const r = await api('/api/documents', { id: docId, title: $('title').value, text: ed.value });
+    const isNew = !docId; docId = r.id;
+    $('saved').textContent = 'Saved';
+    if (isNew) loadDocs(); else { const el = document.querySelector(`.doc[data-id="${docId}"] span`); if (el) el.textContent = $('title').value || 'Untitled'; }
+  } catch (e) { $('saved').textContent = 'Not saved: ' + e.message; }
+}
+ed.addEventListener('input', onEdit);
+$('title').addEventListener('input', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 700); });
+
+// ---------- documents ----------
+async function loadDocs() {
+  const docs = await api('/api/documents');
+  $('docs').innerHTML = docs.map(d => `<div class="doc${d.id === docId ? ' active' : ''}" data-id="${d.id}">
+      <span>${esc(d.title)}</span><small>${d.words}</small><button title="Delete">🗑</button></div>`).join('')
+    || '<div class="muted small" style="padding:6px 8px">No documents yet.</div>';
+  document.querySelectorAll('.doc').forEach(el => {
+    el.onclick = () => openDoc(el.dataset.id);
+    el.querySelector('button').onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this document? This cannot be undone.')) return;
+      await fetch('/api/documents/' + el.dataset.id, { method: 'DELETE' });
+      if (el.dataset.id === docId) newDoc(); else loadDocs();
+    };
+  });
+}
+async function openDoc(id) {
+  await flushSave();
+  const d = await api('/api/documents/' + id);
+  docId = d.id; $('title').value = d.title || ''; ed.value = d.text || '';
+  $('saved').textContent = 'Saved'; updateCounts(); loadDocs(); renderTab();
+}
+async function newDoc() {
+  await flushSave();
+  docId = null; $('title').value = ''; ed.value = ''; $('saved').textContent = '';
+  updateCounts(); loadDocs(); renderTab(); ed.focus();
+}
+async function flushSave() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await save(); } }
+$('newDoc').onclick = newDoc;
+
+// ---------- tools ----------
+const TOOLS = {
+  check: ['✓ Check', renderCheck], tighten: ['✂️ Tighten', renderTighten], summarize: ['≡ Summarize', renderSummarize],
+  research: ['🌐 Research', renderResearch], factcheck: ['🔎 Fact-check', renderFactcheck], outline: ['☰ Outline', renderOutline],
+  ideas: ['💡 Ideas', renderIdeas], words: ['Aa Words', renderWords], voice: ['🪶 My voice', renderVoice],
+};
+function renderTabs() {
+  $('tabs').innerHTML = Object.entries(TOOLS).map(([k, [label]]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${label}</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; renderTabs(); renderTab(); });
+}
+function renderTab() { TOOLS[tab][1](); }
+const P = (html) => { $('panel').innerHTML = html; };
+const busy = (msg) => P(`<p class="spin">${esc(msg)}</p>`);
+const fail = (e) => `<p class="err">${esc(e.message || e)}</p>`;
+const topicDefault = () => (selection().trim() || $('title').value.trim()).slice(0, 200);
+const cite = (n) => `<span class="cite">[${n}]</span>`;
+const sourcesList = (sources) => sources.length ? `<h4>Sources</h4><ol class="src">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join('')}</ol>` : '';
+
+function topicForm(intro, placeholder, button, run) {
+  P(`<p class="intro">${intro}</p><div class="row"><input type="text" id="topic" placeholder="${esc(placeholder)}" value="${esc(topicDefault())}">
+     <button class="primary" id="go">${button}</button></div><div id="out"></div>`);
+  const go = () => { const t = $('topic').value.trim(); if (t) run(t); };
+  $('go').onclick = go; $('topic').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+}
+const out = (html) => { $('out').innerHTML = html; };
+
+// Check
+async function runCheck() {
+  if (tab !== 'check') return;
+  if (!ed.value.trim()) { P('<p class="intro">Write or paste something and Quill will check spelling, grammar, punctuation and style as you go.</p>'); return; }
+  try { lastCheck = await api('/api/check', { text: ed.value }); lastCheck.text = ed.value; drawCheck(); }
+  catch (e) { P(fail(e)); }
+}
+function renderCheck() { if (!$('panel').querySelector('.score')) busy('Checking…'); runCheck(); }
+const KIND_LABEL = { spelling: 'Spelling', grammar: 'Grammar', punctuation: 'Punctuation', wordy: 'Wordy', filler: 'Filler',
+  hedge: 'Hedging', cliche: 'Clichés', passive: 'Passive', adverb: 'Adverbs', long: 'Long sentences', repetition: 'Repetition', style: 'Style' };
+function drawCheck() {
+  const r = lastCheck, s = r.stats;
+  const shown = r.issues.filter(i => !hiddenKinds.has(i.kind));
+  const color = r.score >= 80 ? 'var(--ok)' : r.score >= 60 ? 'var(--warning)' : 'var(--error)';
+  P(`<div class="score"><span class="num" style="color:${color}">${r.score}</span>
+       <div><b>Writing score</b><br><span class="muted small">${r.issues.length} suggestion${r.issues.length === 1 ? '' : 's'} · ${esc(s.reading_ease_label)} to read</span></div>
+       <span class="row grow"></span><button id="fixAll" title="Apply every confident fix">Fix all safe issues</button></div>
+     <div class="stats">
+       <div class="stat"><b>${s.reading_ease}</b><span>Reading ease</span></div>
+       <div class="stat"><b>${s.grade_level}</b><span>Grade level</span></div>
+       <div class="stat"><b>${s.avg_sentence_words}</b><span>Words / sentence</span></div>
+       <div class="stat"><b>${s.sentences}</b><span>Sentences</span></div>
+       <div class="stat"><b>${s.vocabulary_variety}%</b><span>Word variety</span></div>
+       <div class="stat"><b>${s.speaking_time_min}m</b><span>Speaking time</span></div>
+     </div>
+     <div class="chips">${Object.entries(r.counts).map(([k, n]) => `<button data-k="${k}" class="${hiddenKinds.has(k) ? '' : 'on'}">${KIND_LABEL[k] || k} ${n}</button>`).join('')}</div>
+     <div id="issues"></div>`);
+  document.querySelectorAll('.chips button').forEach(b => b.onclick = () => { const k = b.dataset.k; hiddenKinds.has(k) ? hiddenKinds.delete(k) : hiddenKinds.add(k); drawCheck(); });
+  $('fixAll').onclick = () => { tab = 'tighten'; renderTabs(); renderTighten(true); };
+  $('issues').innerHTML = shown.slice(0, 200).map((i, n) => `<div class="card clickable sev-${i.severity}" data-n="${n}">
+      <div><span class="dot"></span>${esc(i.message)}</div>
+      <div class="ctx">${esc(i.context.before)}<mark>${esc(i.context.match)}</mark>${esc(i.context.after)}</div>
+      <div class="sugg">${i.suggestions.map((sg, k) => `<button data-s="${k}">${sg === '' ? '<i>remove</i>' : esc(sg.trim() || '␣')}</button>`).join('')}
+        ${i.kind === 'spelling' ? '<button data-add="1" class="link">Add to dictionary</button>' : ''}</div></div>`).join('')
+    || '<p class="muted">Nothing to flag. Nice work!</p>';
+  document.querySelectorAll('#issues .card').forEach(card => {
+    const i = shown[card.dataset.n];
+    card.onclick = (e) => { if (e.target.tagName !== 'BUTTON' && stillThere(i)) select(i.start, i.end); };
+    card.querySelectorAll('button[data-s]').forEach(b => b.onclick = () => {
+      if (!stillThere(i)) { runCheck(); return; }
+      replaceRange(i.start, i.end, i.suggestions[b.dataset.s]); clearTimeout(checkTimer); runCheck();
     });
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        if (!line.trim()) continue;
-        const ev = JSON.parse(line);
-        if (ev.type === 'conversation') { if (currentId !== ev.id) { currentId = ev.id; loadConvos(); } }
-        else if (ev.type === 'text') { raw += ev.text; div.dataset.raw = raw; bubble.innerHTML = markdown(raw); scrollDown(); }
-        else if (ev.type === 'status') { status.textContent = ev.text; status.hidden = !ev.text; }
-        else if (ev.type === 'source') { if (!sources.some(s => s.url === ev.url)) { sources.push(ev); setSources(div, sources); } }
-        else if (ev.type === 'error') { const e = document.createElement('div'); e.className = 'error'; e.textContent = ev.text; div.appendChild(e); }
-      }
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError') { const el = document.createElement('div'); el.className = 'error'; el.textContent = 'Connection lost: ' + e.message; div.appendChild(el); }
-  } finally {
-    status.remove();
-    controller = null;
-    $('send').disabled = false; $('stop').hidden = true;
-    loadConvos();
-  }
+    const add = card.querySelector('button[data-add]');
+    if (add) add.onclick = async () => { await api('/api/dictionary', { add: i.word }); runCheck(); };
+  });
+}
+const stillThere = (i) => lastCheck && ed.value === lastCheck.text && ed.value.slice(i.start, i.end) === i.context.match;
+
+// Tighten
+function renderTighten(autorun) {
+  P(`<p class="intro">Applies every fix Quill is confident about: spelling, grammar, punctuation, wordy phrases and filler words. You'll see each change before accepting.</p>
+     <button class="primary" id="go">Tighten ${ed.selectionStart !== ed.selectionEnd ? 'selection' : 'whole document'}</button><div id="out" style="margin-top:12px"></div>`);
+  $('go').onclick = runTighten;
+  if (autorun === true) runTighten();
+}
+async function runTighten() {
+  const hasSel = ed.selectionStart !== ed.selectionEnd;
+  const start = hasSel ? ed.selectionStart : 0, end = hasSel ? ed.selectionEnd : ed.value.length;
+  const original = ed.value.slice(start, end);
+  if (!original.trim()) return out('<p class="muted">Nothing to tighten yet.</p>');
+  out('<p class="spin">Tightening…</p>');
+  try {
+    const r = await api('/api/tighten', { text: original });
+    if (!r.changes.length) return out('<p class="muted">No confident fixes found. Try the Check tab for suggestions that need your judgment.</p>');
+    out(`<div class="card"><b>${r.changes.length} change${r.changes.length === 1 ? '' : 's'}</b> · ${r.before.words} → ${r.after.words} words · reading ease ${r.before.reading_ease} → ${r.after.reading_ease}
+      <div class="row" style="margin-top:8px"><button class="primary" id="accept">Accept all</button><span class="muted small">You can undo with Ctrl+Z / ⌘Z</span></div></div>
+      <div class="diff">${r.changes.map(c => `<div class="card small"><del>${esc(c.from)}</del> → <ins>${esc(c.to) || '<i>removed</i>'}</ins><div class="muted">${esc(c.why)}</div></div>`).join('')}</div>`);
+    $('accept').onclick = () => {
+      if (ed.value.slice(start, end) !== original) return out('<p class="err">The text changed since tightening. Run it again.</p>');
+      replaceRange(start, end, r.text); out('<p>Done. Changes applied.</p>');
+    };
+  } catch (e) { out(fail(e)); }
 }
 
-// ---------- settings & status ----------
-async function loadStatus() {
-  const s = await (await fetch('/api/status')).json();
-  const sel = $('model');
-  const models = s.models.length ? s.models : [s.settings.model];
-  if (!models.includes(s.settings.model) && !models.includes(s.settings.model + ':latest')) models.unshift(s.settings.model);
-  sel.innerHTML = models.map(m => `<option>${esc(m)}</option>`).join('');
-  sel.value = models.includes(s.settings.model) ? s.settings.model : s.settings.model + ':latest';
-  const st = $('status');
-  if (!s.ok) { st.className = 'bad'; st.textContent = s.error; }
-  else if (!s.models.length) { st.className = 'bad'; st.textContent = `No models downloaded. In a terminal run: ollama pull ${s.settings.model}`; }
-  else { st.className = ''; st.textContent = `Running locally · ${s.models.length} model${s.models.length > 1 ? 's' : ''} available`; }
+// Summarize
+function renderSummarize() {
+  P(`<p class="intro">Pulls out the most important sentences (from your selection, or the whole document) and the key phrases.</p>
+     <div class="row"><select id="len"><option value="0.15">Short</option><option value="0.25" selected>Medium</option><option value="0.4">Long</option></select>
+     <button class="primary" id="go">Summarize</button></div><div id="out"></div>`);
+  $('go').onclick = async () => {
+    const t = selection().trim() || ed.value;
+    if (!t.trim()) return out('<p class="muted">Nothing to summarize yet.</p>');
+    out('<p class="spin">Summarizing…</p>');
+    try {
+      const r = await api('/api/summarize', { text: t, ratio: $('len').value });
+      out(`<div class="card opt">${esc(r.summary)}</div><button id="ins">Insert at cursor</button>
+           <h4>Key phrases</h4><div class="words">${r.keyphrases.map(k => `<button>${esc(k)}</button>`).join('')}</div>`);
+      $('ins').onclick = () => insertAtCursor(r.summary);
+      document.querySelectorAll('#out .words button').forEach(b => b.onclick = () => { tab = 'research'; renderTabs(); renderResearch(b.textContent); });
+    } catch (e) { out(fail(e)); }
+  };
 }
-$('model').onchange = () => fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: $('model').value }) });
 
-$('profileBtn').onclick = async () => {
-  $('profileText').value = (await (await fetch('/api/profile')).json()).profile;
-  $('profileDlg').showModal();
+// Research
+function renderResearch(preset) {
+  topicForm('Searches the web, reads the top pages, and pulls out the most relevant facts with sources.', 'What do you want to know?', 'Research', runResearch);
+  if (typeof preset === 'string') { $('topic').value = preset; runResearch(preset); }
+}
+async function runResearch(q) {
+  out('<p class="spin">Searching and reading pages… (10–30 seconds)</p>');
+  try {
+    const r = await api('/api/research', { query: q });
+    if (!r.points.length) return out('<p class="muted">Nothing useful found. Try different words.</p>' + sourcesList(r.sources));
+    out(`<h4>Key points</h4>${r.points.map(p => `<div class="card">${esc(p.text)} ${cite(p.source)}</div>`).join('')}
+      <button id="ins">Insert as notes</button>
+      <h4>Key terms</h4><div class="words">${r.keyterms.map(k => `<button>${esc(k)}</button>`).join('')}</div>${sourcesList(r.sources)}`);
+    $('ins').onclick = () => insertAtCursor(`Research notes: ${q}\n` + r.points.map(p => `- ${p.text} [${p.source}]`).join('\n') +
+      '\n\nSources:\n' + r.sources.filter(s => r.points.some(p => p.source === s.n)).map(s => `[${s.n}] ${s.title} - ${s.url}`).join('\n'));
+    document.querySelectorAll('#out .words button').forEach(b => b.onclick = () => { $('topic').value = b.textContent; runResearch(b.textContent); });
+  } catch (e) { out(fail(e)); }
+}
+
+// Fact-check
+function renderFactcheck() {
+  P(`<p class="intro">Looks up each factual-sounding sentence (in your selection, or the whole document) and shows what the web says.
+     It finds evidence; you make the call.</p><button class="primary" id="go">Fact-check ${ed.selectionStart !== ed.selectionEnd ? 'selection' : 'document'}</button><div id="out" style="margin-top:12px"></div>`);
+  $('go').onclick = async () => {
+    const t = selection().trim() || ed.value;
+    if (!t.trim()) return out('<p class="muted">Nothing to check yet.</p>');
+    out('<p class="spin">Checking claims against the web… (up to a minute)</p>');
+    try {
+      const r = await api('/api/factcheck', { text: t });
+      const label = { supported: 'Supported', partial: 'Partly matched', check: 'Check numbers', unverified: 'No match found', error: 'Error' };
+      out(r.claims.map(c => `<div class="card"><span class="badge v-${c.verdict}">${label[c.verdict]}</span>
+          <div class="opt" style="margin:6px 0">${esc(c.claim)}</div><div class="muted small">${esc(c.note)}</div>
+          ${c.evidence.map(ev => `<div class="ctx">“${esc(ev.text)}” — <a href="${esc(ev.url)}" target="_blank" rel="noopener">${esc(ev.title)}</a></div>`).join('')}</div>`).join('')
+        || '<p class="muted">No checkable claims found.</p>');
+    } catch (e) { out(fail(e)); }
+  };
+}
+
+// Outline
+function renderOutline() {
+  topicForm('Researches a topic and builds an outline of the main sub-topics, with notes and sources under each.', 'Topic to outline', 'Build outline', async (t) => {
+    out('<p class="spin">Researching and organising… (10–30 seconds)</p>');
+    try {
+      const r = await api('/api/outline', { topic: t });
+      if (!r.sections.length) return out('<p class="muted">Not enough material found. Try a broader topic.</p>');
+      out(`<div class="card"><h4>Introduction</h4><span class="muted small">Hook + why ${esc(t)} matters.</span></div>
+        ${r.sections.map((s, i) => `<div class="card"><h4>${i + 1}. ${esc(s.heading)}</h4>${s.notes.map(n => `<div class="small">• ${esc(n.text)} ${cite(n.source)}</div>`).join('')}</div>`).join('')}
+        <div class="card"><h4>Conclusion</h4><span class="muted small">Bring it together and leave the reader with one idea.</span></div>
+        <button id="ins">Insert outline</button>${sourcesList(r.sources)}`);
+      $('ins').onclick = () => insertAtCursor(`Outline: ${t}\n\nIntroduction\n` + r.sections.map((s, i) => `\n${i + 1}. ${s.heading}\n` + s.notes.map(n => `   - ${n.text} [${n.source}]`).join('\n')).join('\n') +
+        '\n\nConclusion\n\nSources:\n' + r.sources.map(s => `[${s.n}] ${s.title} - ${s.url}`).join('\n'));
+    } catch (e) { out(fail(e)); }
+  });
+}
+
+// Ideas
+function renderIdeas() {
+  topicForm('Brainstorms titles, angles and questions people ask, using what the web is saying about your topic.', 'Topic', 'Brainstorm', async (t) => {
+    out('<p class="spin">Brainstorming…</p>');
+    try {
+      const r = await api('/api/ideas', { topic: t });
+      out(`<h4>Titles <span class="muted small">(click to use)</span></h4>${r.titles.map(x => `<div class="card clickable title">${esc(x)}</div>`).join('')}
+        <h4>Angles</h4>${r.angles.map(a => `<div class="card"><b>${esc(a.name)}</b><div class="small">${esc(a.idea)}</div></div>`).join('')}
+        ${r.questions.length ? `<h4>Questions people ask</h4>${r.questions.map(q => `<div class="card small">${esc(q)}</div>`).join('')}` : ''}
+        ${r.related.length ? `<h4>Related topics</h4><div class="words">${r.related.map(k => `<button>${esc(k)}</button>`).join('')}</div>` : ''}`);
+      document.querySelectorAll('#out .title').forEach(c => c.onclick = () => { $('title').value = c.textContent; save(); });
+      document.querySelectorAll('#out .words button').forEach(b => b.onclick = () => { tab = 'research'; renderTabs(); renderResearch(b.textContent); });
+    } catch (e) { out(fail(e)); }
+  });
+}
+
+// Words
+function renderWords() {
+  const w = (selection().trim().match(/^[\p{L}'’-]+$/u) || [''])[0];
+  const selStart = ed.selectionStart, selEnd = ed.selectionEnd;
+  P(`<p class="intro">Select a word in your text, or type one. Click a synonym to swap it in.</p>
+     <div class="row"><input type="text" id="topic" placeholder="A word" value="${esc(w)}"><button class="primary" id="go">Look up</button></div><div id="out"></div>`);
+  const run = async () => {
+    const word = $('topic').value.trim(); if (!word) return;
+    out('<p class="spin">Looking up…</p>');
+    try {
+      const r = await api('/api/lookup', { word });
+      const group = (title, list) => list.length ? `<h4>${title}</h4><div class="words">${list.map(x => `<button>${esc(x)}</button>`).join('')}</div>` : '';
+      out((r.error ? `<p class="err">${esc(r.error)}</p>` : '') +
+        (r.spelling.length ? group('Did you mean', r.spelling) : '') +
+        (r.definitions.length ? `<h4>Definitions</h4>${r.definitions.map(d => `<div class="card small"><i>${esc(d.pos)}</i> ${esc(d.text)}${d.example ? `<div class="muted">“${esc(d.example)}”</div>` : ''}</div>`).join('')}` : '') +
+        group('Synonyms', r.synonyms) + group('Similar meaning', r.similar) + group('Opposites', r.antonyms) + group('Rhymes', r.rhymes));
+      const canSwap = selEnd > selStart && ed.value.slice(selStart, selEnd).trim().toLowerCase() === word.toLowerCase();
+      document.querySelectorAll('#out .words button').forEach(b => b.onclick = () => {
+        if (canSwap && ed.value.slice(selStart, selEnd).trim().toLowerCase() === word.toLowerCase()) {
+          const orig = ed.value.slice(selStart, selEnd);
+          let rep = b.textContent; if (orig[0] === orig[0].toUpperCase()) rep = rep[0].toUpperCase() + rep.slice(1);
+          replaceRange(selStart, selEnd, rep);
+        } else { $('topic').value = b.textContent; run(); }
+      });
+    } catch (e) { out(fail(e)); }
+  };
+  $('go').onclick = run; $('topic').onkeydown = (e) => { if (e.key === 'Enter') run(); };
+  if (w) run();
+}
+
+// My voice
+async function renderVoice() {
+  let info = { words: 0 };
+  try { info = await api('/api/samples'); } catch (e) {}
+  P(`<p class="intro">Quill's own small language model, trained on <b>your</b> writing samples (${info.words.toLocaleString()} words so far).
+     It continues your text in your style. Expect sparks and phrases to work with, not finished prose. More samples = better results.</p>
+     ${info.words < 300 ? '<div class="card small">Add more of your writing under <b>My writing samples</b> (at least a few hundred words).</div>' : ''}
+     <div class="row"><select id="len"><option value="40">Short</option><option value="80" selected>Medium</option><option value="160">Long</option></select>
+       <input type="text" id="vtopic" placeholder="Optional: blend in web text on a topic"></div>
+     <button class="primary" id="go">Continue from cursor</button><div id="out" style="margin-top:12px"></div>`);
+  $('go').onclick = async () => {
+    out('<p class="spin">Writing…</p>');
+    try {
+      const prompt = ed.value.slice(0, ed.selectionEnd);
+      const r = await api('/api/voice', { prompt, words: $('len').value, topic: $('vtopic').value.trim() });
+      if (r.error) return out(`<p class="err">${esc(r.error)}</p>`);
+      out(r.options.map((o, i) => `<div class="card"><div class="opt">${esc(o)}</div><button data-i="${i}" style="margin-top:6px">Insert</button></div>`).join(''));
+      document.querySelectorAll('#out button[data-i]').forEach(b => b.onclick = () => {
+        const pos = ed.selectionEnd, before = ed.value.slice(0, pos);
+        replaceRange(pos, pos, (before && !/\s$/.test(before) ? ' ' : '') + r.options[b.dataset.i]);
+      });
+    } catch (e) { out(fail(e)); }
+  };
+}
+
+// ---------- dialogs ----------
+$('samplesBtn').onclick = async () => {
+  const r = await api('/api/samples'); $('samplesText').value = r.text;
+  $('samplesCount').textContent = `${r.words.toLocaleString()} words`; $('samplesDlg').showModal();
 };
-$('profileCancel').onclick = () => $('profileDlg').close();
-$('profileSave').onclick = async () => {
-  await fetch('/api/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: $('profileText').value }) });
-  $('profileDlg').close();
-};
+$('samplesText').oninput = () => { $('samplesCount').textContent = `${($('samplesText').value.match(/[\p{L}]+/gu) || []).length.toLocaleString()} words`; };
+$('samplesCancel').onclick = () => $('samplesDlg').close();
+$('samplesSave').onclick = async () => { await api('/api/samples', { text: $('samplesText').value }); $('samplesDlg').close(); if (tab === 'voice' || tab === 'check') renderTab(); };
 
-$('send').onclick = send;
-$('stop').onclick = () => controller && controller.abort();
-$('newChat').onclick = newChat;
-$('menu').onclick = () => $('sidebar').classList.toggle('open');
-$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+async function drawDict(words) {
+  $('dictList').innerHTML = words.map(w => `<button title="Remove">${esc(w)} ✕</button>`).join('') || '<span class="muted">No words yet.</span>';
+  document.querySelectorAll('#dictList button').forEach((b, i) => b.onclick = async () => drawDict((await api('/api/dictionary', { remove: words[i] })).words));
+}
+$('dictBtn').onclick = async () => { drawDict((await api('/api/dictionary')).words); $('dictDlg').showModal(); };
+$('dictAddBtn').onclick = async () => { const w = $('dictAdd').value.trim(); if (w) { drawDict((await api('/api/dictionary', { add: w })).words); $('dictAdd').value = ''; } };
+$('dictClose').onclick = () => { $('dictDlg').close(); if (tab === 'check') runCheck(); };
 
-showEmpty();
-loadConvos();
-loadStatus();
+window.addEventListener('beforeunload', () => {
+  if (saveTimer && (docId || ed.value.trim()))
+    navigator.sendBeacon('/api/documents', new Blob([JSON.stringify({ id: docId, title: $('title').value, text: ed.value })], { type: 'application/json' }));
+});
+
+renderTabs();
+loadDocs();
+renderTab();
 </script>
 </body>
 </html>

@@ -1,4 +1,8 @@
-"""Local web app for the writing assistant. Run:  python server.py  then open http://127.0.0.1:8765"""
+"""Quill writing assistant. Run:  python server.py  then open http://127.0.0.1:8765
+
+Everything runs on this computer with plain Python: no AI model, no API keys, no special hardware.
+The internet is used only for web research and word lookups.
+"""
 
 import json
 import os
@@ -7,102 +11,155 @@ import threading
 import time
 import uuid
 import webbrowser
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import assistant
+from quill import editor, lexicon, research, spelling, summarize, voice
+from quill import text as T
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("WRITER_DATA", ROOT / "data"))
-CONVOS = DATA / "conversations"
-PROFILE = DATA / "profile.txt"
-SETTINGS = DATA / "settings.json"
+DOCS = DATA / "documents"
+SAMPLES = DATA / "samples.txt"
+DICTIONARY = DATA / "dictionary.txt"
 HOST = os.environ.get("WRITER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("WRITER_PORT", "8765"))
 ID_RE = re.compile(r"^[a-f0-9]{32}$")
+MAX_TEXT = 200_000
 
 _lock = threading.Lock()
 
 
 # ---------------------------------------------------------------- storage
 
-def _read_json(path: Path, default):
+def _read(path: Path, default=""):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        return path.read_text(encoding="utf-8")
+    except OSError:
         return default
 
 
-def _write_json(path: Path, value):
+def _write(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
 
-def load_convo(cid: str):
-    if not ID_RE.match(cid):
+def load_doc(did: str):
+    if not ID_RE.match(did or ""):
         return None
-    return _read_json(CONVOS / f"{cid}.json", None)
+    try:
+        return json.loads(_read(DOCS / f"{did}.json", "null"))
+    except ValueError:
+        return None
 
 
-def save_convo(convo: dict):
-    convo["updated"] = time.time()
-    with _lock:
-        _write_json(CONVOS / f"{convo['id']}.json", convo)
-
-
-def list_convos():
-    items = []
-    for f in CONVOS.glob("*.json"):
-        c = _read_json(f, None)
-        if c:
-            items.append({"id": c["id"], "title": c.get("title", "Untitled"), "updated": c.get("updated", 0)})
-    return sorted(items, key=lambda c: c["updated"], reverse=True)
-
-
-def visible_messages(convo: dict):
+def list_docs():
     out = []
-    for m in convo["messages"]:
-        if m["role"] == "user":
-            out.append({"role": "user", "text": m.get("display", m["content"])})
-        elif m["role"] == "assistant" and (m.get("content") or m.get("sources")):
-            if out and out[-1]["role"] == "assistant":
-                out[-1]["text"] += m["content"]
-                out[-1]["sources"] += m.get("sources", [])
-            else:
-                out.append({"role": "assistant", "text": m["content"], "sources": m.get("sources", [])})
-    return out
+    for f in DOCS.glob("*.json"):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out.append({"id": d["id"], "title": d.get("title") or "Untitled", "updated": d.get("updated", 0),
+                    "words": len(T.words(d.get("text", "")))})
+    return sorted(out, key=lambda d: d["updated"], reverse=True)
 
 
-def settings():
-    return {"model": assistant.DEFAULT_MODEL, **_read_json(SETTINGS, {})}
+def dictionary_words():
+    return sorted({w.strip() for w in _read(DICTIONARY).splitlines() if w.strip()})
+
+
+def refresh_personal_words():
+    """Words in your dictionary, plus any word you use at least twice in your samples, count as correct."""
+    sample_words = Counter(T.tokens(_read(SAMPLES)))
+    spelling.set_personal_words(dictionary_words() + [w for w, c in sample_words.items() if c >= 2])
+
+
+# ---------------------------------------------------------------- API actions
+
+def _text(req, key="text"):
+    value = str(req.get(key) or "")
+    if len(value) > MAX_TEXT:
+        raise ValueError(f"That's too long to process at once (limit {MAX_TEXT:,} characters).")
+    return value
+
+
+def act_save(req):
+    with _lock:
+        doc = load_doc(req.get("id")) or {"id": uuid.uuid4().hex, "created": time.time()}
+        doc.update(title=str(req.get("title") or "")[:200], text=_text(req), updated=time.time())
+        _write(DOCS / f"{doc['id']}.json", json.dumps(doc, ensure_ascii=False))
+    return {"id": doc["id"], "updated": doc["updated"]}
+
+
+def act_voice(req):
+    extra = ""
+    topic = str(req.get("topic") or "").strip()
+    if topic:
+        extra = "\n\n".join(s.get("text", "") for s in research.gather(topic, pages=4))
+    words = max(10, min(300, int(req.get("words") or 80)))
+    return voice.continue_text(_read(SAMPLES), _text(req, "prompt")[-500:], words, extra)
+
+
+def act_dictionary(req):
+    word = str(req.get("add") or "").strip()
+    with _lock:
+        words = set(dictionary_words())
+        if word:
+            words.add(word)
+        if req.get("remove"):
+            words.discard(str(req["remove"]))
+        _write(DICTIONARY, "\n".join(sorted(words)) + "\n")
+    refresh_personal_words()
+    return {"words": sorted(words)}
+
+
+def act_samples(req):
+    _write(SAMPLES, _text(req))
+    refresh_personal_words()
+    return {"ok": True, "words": len(T.words(_read(SAMPLES)))}
+
+
+ACTIONS = {
+    "/api/check": lambda r: editor.check(_text(r)),
+    "/api/tighten": lambda r: editor.tighten(_text(r)),
+    "/api/summarize": lambda r: summarize.summarize(_text(r), float(r.get("ratio") or 0.25)),
+    "/api/research": lambda r: research.research(_text(r, "query")),
+    "/api/outline": lambda r: research.outline(_text(r, "topic")),
+    "/api/ideas": lambda r: research.ideas(_text(r, "topic")),
+    "/api/factcheck": lambda r: research.factcheck(_text(r)),
+    "/api/lookup": lambda r: lexicon.lookup(_text(r, "word")[:60]),
+    "/api/voice": act_voice,
+    "/api/documents": act_save,
+    "/api/dictionary": act_dictionary,
+    "/api/samples": act_samples,
+}
 
 
 # ---------------------------------------------------------------- HTTP
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WritingAssistant/1.0"
+    server_version = "Quill/2.0"
 
     def log_message(self, fmt, *args):
         pass
 
     def _json(self, value, status=200):
-        body = json.dumps(value).encode()
+        body = json.dumps(value, ensure_ascii=False).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(length) or b"{}")
-
     def _same_origin(self):
-        # Block other websites open in your browser from talking to this local app.
+        # Stop other websites open in your browser from using this local app.
         origin = self.headers.get("Origin")
-        return origin is None or origin in (f"http://{HOST}:{PORT}", f"http://localhost:{PORT}")
+        return origin is None or origin in (f"http://{HOST}:{PORT}", f"http://localhost:{PORT}",
+                                            f"http://127.0.0.1:{PORT}")
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -113,103 +170,53 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif path == "/api/status":
-            self._json({**assistant.ollama_status(), "settings": settings(), "modes": list(assistant.MODES)})
-        elif path == "/api/conversations":
-            self._json(list_convos())
-        elif path.startswith("/api/conversations/"):
-            convo = load_convo(path.rsplit("/", 1)[1])
-            if not convo:
-                return self._json({"error": "not found"}, 404)
-            self._json({"id": convo["id"], "title": convo["title"], "messages": visible_messages(convo)})
-        elif path == "/api/profile":
-            self._json({"profile": PROFILE.read_text(encoding="utf-8") if PROFILE.exists() else ""})
+        elif path == "/api/documents":
+            self._json(list_docs())
+        elif path.startswith("/api/documents/"):
+            doc = load_doc(path.rsplit("/", 1)[1])
+            self._json(doc or {"error": "not found"}, 200 if doc else 404)
+        elif path == "/api/samples":
+            text = _read(SAMPLES)
+            self._json({"text": text, "words": len(T.words(text))})
+        elif path == "/api/dictionary":
+            self._json({"words": dictionary_words()})
         else:
             self._json({"error": "not found"}, 404)
 
     def do_DELETE(self):
         if not self._same_origin():
             return self._json({"error": "forbidden"}, 403)
-        if self.path.startswith("/api/conversations/"):
-            cid = self.path.rsplit("/", 1)[1]
-            if ID_RE.match(cid):
-                (CONVOS / f"{cid}.json").unlink(missing_ok=True)
+        did = self.path.rsplit("/", 1)[1]
+        if self.path.startswith("/api/documents/") and ID_RE.match(did):
+            (DOCS / f"{did}.json").unlink(missing_ok=True)
             return self._json({"ok": True})
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
         if not self._same_origin():
             return self._json({"error": "forbidden"}, 403)
-        path = self.path.split("?")[0]
-        if path == "/api/profile":
-            PROFILE.parent.mkdir(parents=True, exist_ok=True)
-            PROFILE.write_text(self._body().get("profile", ""), encoding="utf-8")
-            return self._json({"ok": True})
-        if path == "/api/settings":
-            with _lock:
-                _write_json(SETTINGS, {**_read_json(SETTINGS, {}), **self._body()})
-            return self._json(settings())
-        if path == "/api/chat":
-            return self._chat(self._body())
-        self._json({"error": "not found"}, 404)
-
-    def _chat(self, req):
-        text = (req.get("text") or "").strip()
-        if not text:
-            return self._json({"error": "empty message"}, 400)
-        convo = load_convo(req.get("conversation_id") or "")
-        if not convo:
-            title = " ".join(text.split())[:60]
-            convo = {"id": uuid.uuid4().hex, "title": title or "Untitled", "messages": [], "created": time.time()}
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-
-        def send(event):
-            self.wfile.write((json.dumps(event) + "\n").encode())
-            self.wfile.flush()
-
-        start = len(convo["messages"])
-        sources = {}
+        action = ACTIONS.get(self.path.split("?")[0])
+        if not action:
+            return self._json({"error": "not found"}, 404)
         try:
-            send({"type": "conversation", "id": convo["id"], "title": convo["title"]})
-            user_msg, events = assistant.build_user_turn(text, req.get("mode", "chat"), bool(req.get("auto_search")))
-            convo["messages"].append(user_msg)
-            stream = assistant.stream_reply(convo["messages"], PROFILE.read_text(encoding="utf-8")
-                                            if PROFILE.exists() else "", req.get("model") or settings()["model"])
-            for event in [*events, *stream]:
-                if event["type"] == "source":
-                    sources.setdefault(event["url"], event["title"])
-                send(event)
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # browser closed or stopped the reply; keep what we have
+            length = int(self.headers.get("Content-Length") or 0)
+            req = json.loads(self.rfile.read(length) or b"{}")
+            self._json(action(req))
+        except ValueError as e:
+            self._json({"error": str(e)}, 400)
+        except OSError as e:
+            self._json({"error": f"Couldn't reach the internet: {e}"}, 502)
         except Exception as e:
-            try:
-                send({"type": "error", "text": f"Something went wrong: {e}"})
-            except OSError:
-                pass
-        finally:
-            new = convo["messages"][start:]
-            if any(m["role"] == "assistant" and m.get("content") for m in new):
-                last = next(m for m in reversed(new) if m["role"] == "assistant")
-                last["sources"] = [{"url": u, "title": t} for u, t in sources.items()]
-                save_convo(convo)
-            elif new:
-                del convo["messages"][start:]  # nothing useful came back; don't keep a dangling turn
+            self._json({"error": f"Something went wrong: {e}"}, 500)
 
 
 def main():
-    CONVOS.mkdir(parents=True, exist_ok=True)
+    DOCS.mkdir(parents=True, exist_ok=True)
+    refresh_personal_words()
+    spelling.known("warmup")  # load the word list before the first request
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
-    print(f"Writing assistant running at {url}  (press Ctrl+C to stop)")
-    status = assistant.ollama_status()
-    if not status["ok"]:
-        print("WARNING:", status["error"])
-    elif settings()["model"] not in status["models"] and settings()["model"] + ":latest" not in status["models"]:
-        print(f"WARNING: model '{settings()['model']}' isn't downloaded yet. Run: ollama pull {settings()['model']}")
+    print(f"Quill is running at {url}  (press Ctrl+C to stop)")
     if os.environ.get("WRITER_NO_BROWSER") != "1":
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
